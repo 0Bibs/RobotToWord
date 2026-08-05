@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# saidas geradas
+*.docx
+!Exemplo de forma para prints.docx
+*.pdf
+saida/
