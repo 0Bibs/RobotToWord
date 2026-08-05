@@ -43,16 +43,23 @@ no fim, o botão **Abrir pasta de saída** leva direto aos arquivos.
 
 ### Distribuir sem instalar Python
 
-Para a equipe não precisar instalar nada, gere um executável único. Em uma
-máquina Windows que tenha Python, rode:
+O `RobotToWord.exe` (~43 MB) leva Python e todas as bibliotecas embutidos:
+copie para uma pasta da rede e cada um usa com dois cliques — sem instalação,
+sem PATH, sem permissão de administrador.
 
-```
-build_exe.bat
-```
+**Baixando o executável pronto.** O GitHub monta um a cada alteração no painel.
+Vá em **Actions → Gerar RobotToWord.exe**, abra a execução mais recente e baixe
+o artefato `RobotToWord-exe` no rodapé da página (vem em `.zip`; é preciso estar
+logado no GitHub, e os artefatos expiram em 90 dias). Para gerar um sob demanda,
+use o botão **Run workflow** na mesma tela.
 
-Sai um `dist\RobotToWord.exe` (~50 MB) com Python e todas as bibliotecas
-embutidos. Copie esse arquivo para uma pasta da rede e cada um usa com dois
-cliques — sem instalação, sem PATH, sem permissão de administrador.
+**Gerando na sua máquina.** Em um Windows com Python, rode `build_exe.bat`; sai
+o mesmo arquivo em `dist\RobotToWord.exe`.
+
+> Na primeira execução o Windows costuma mostrar "O Windows protegeu o seu PC",
+> porque o executável não tem assinatura digital paga. Clique em **Mais
+> informações → Executar assim mesmo**. Para evitar isso na equipe inteira, o
+> caminho é comprar um certificado de assinatura de código.
 
 ## Linha de comando
 
