@@ -25,7 +25,36 @@ Precisa de Python 3.10 ou mais novo.
 pip install -r requirements.txt
 ```
 
-## Uso
+## Painel (para a equipe)
+
+Quem não quiser linha de comando usa o painel:
+
+```bash
+python painel.py
+```
+
+No Windows, dê dois cliques em `painel.bat` — abre o painel sem a janela preta
+de console atrás.
+
+Ele tem três blocos: escolher os PDFs (avulsos ou uma pasta inteira), decidir se
+sai um Word por PDF ou um só com tudo, e ajustar qualidade/recorte. A conversão
+roda em segundo plano, com barra de progresso e um log do que está acontecendo;
+no fim, o botão **Abrir pasta de saída** leva direto aos arquivos.
+
+### Distribuir sem instalar Python
+
+Para a equipe não precisar instalar nada, gere um executável único. Em uma
+máquina Windows que tenha Python, rode:
+
+```
+build_exe.bat
+```
+
+Sai um `dist\RobotToWord.exe` (~50 MB) com Python e todas as bibliotecas
+embutidos. Copie esse arquivo para uma pasta da rede e cada um usa com dois
+cliques — sem instalação, sem PATH, sem permissão de administrador.
+
+## Linha de comando
 
 Um PDF, um Word ao lado dele:
 
@@ -46,7 +75,7 @@ trecho:
 python robot_to_word.py pasta_com_pdfs/ --merge "Memorial de Ligações.docx" --title
 ```
 
-## Opções
+## Opções da linha de comando
 
 | Opção | Padrão | Para que serve |
 |---|---|---|

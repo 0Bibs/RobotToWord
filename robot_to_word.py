@@ -19,7 +19,7 @@ import io
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Callable, Iterable, Iterator
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -38,6 +38,18 @@ MARGIN_TOP_BOTTOM = Twips(1417)
 
 
 PROBE_DPI = 50  # resolucao barata usada so para descobrir onde esta o conteudo
+
+
+@dataclass(frozen=True)
+class Print:
+    """Um print pronto para entrar no Word."""
+    stream: io.BytesIO
+    width: int
+    height: int
+
+
+# Chamado a cada pagina processada: (concluidas, total, mensagem).
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass(frozen=True)
@@ -124,17 +136,25 @@ def encode(image: Image.Image, options: Options) -> io.BytesIO:
     return buffer
 
 
-def iter_prints(pdf_path: Path, options: Options) -> Iterator[tuple[io.BytesIO, int, int]]:
-    """Gera (imagem, largura_px, altura_px) para cada pagina util do PDF."""
+def iter_prints(pdf_path: Path, options: Options) -> Iterator[Print | None]:
+    """Gera um Print por pagina do PDF - ou None, quando a pagina esta em branco."""
     padding_px = round(options.crop_padding_pt * options.dpi / 72)
     with fitz.open(pdf_path) as pdf:
         columns = (document_columns(pdf, options.crop_threshold)
                    if options.crop_mode == "uniform" else None)
         for page in pdf:
             image = crop_page(render_page(page, options.dpi), options, padding_px, columns)
-            if image is None:
-                continue  # pagina em branco
-            yield encode(image, options), image.width, image.height
+            yield None if image is None else Print(encode(image, options),
+                                                  image.width, image.height)
+
+
+def count_pages(pdf_paths: Iterable[Path]) -> int:
+    """Total de paginas do lote, usado para medir o progresso."""
+    total = 0
+    for pdf_path in pdf_paths:
+        with fitz.open(pdf_path) as pdf:
+            total += pdf.page_count
+    return total
 
 
 def new_document(template: Path | None) -> Document:
@@ -168,16 +188,15 @@ def usable_area(document: Document) -> tuple[int, int]:
     return width, height
 
 
-def add_print(document: Document, stream: io.BytesIO, px_w: int, px_h: int,
-              *, page_break: bool) -> None:
+def add_print(document: Document, item: Print, *, page_break: bool) -> None:
     """Insere um print ocupando toda a largura util, sem distorcer a imagem."""
     max_width, max_height = usable_area(document)
 
     width = max_width
-    height = round(width * px_h / px_w)
+    height = round(width * item.height / item.width)
     if height > max_height:  # print muito alto: limita pela altura da pagina
         height = max_height
-        width = round(height * px_w / px_h)
+        width = round(height * item.width / item.height)
 
     paragraph = document.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -189,28 +208,48 @@ def add_print(document: Document, stream: io.BytesIO, px_w: int, px_h: int,
         # A quebra vai no inicio do proprio paragrafo da imagem: garante um
         # print por pagina sem criar paragrafos vazios sobrando.
         run.add_break(WD_BREAK.PAGE)
-    run.add_picture(stream, width=Emu(width), height=Emu(height))
+    run.add_picture(item.stream, width=Emu(width), height=Emu(height))
 
 
-def build(pdf_paths: Iterable[Path], document: Document, options: Options) -> int:
+def build(pdf_paths: Iterable[Path], document: Document, options: Options,
+          on_progress: ProgressCallback | None = None) -> int:
     """Despeja os prints de todos os PDFs no documento. Retorna quantos prints."""
-    total = 0
+    pdf_paths = list(pdf_paths)
+    pages_total = count_pages(pdf_paths) if on_progress else 0
+    pages_done = 0
+    prints = 0
+
     for pdf_path in pdf_paths:
         if options.title:
             heading = document.add_heading(pdf_path.stem, level=1)
-            if total and options.page_break:
+            if prints and options.page_break:
                 heading.runs[0].add_break(WD_BREAK.PAGE)
 
-        for index, (stream, px_w, px_h) in enumerate(iter_prints(pdf_path, options)):
-            first_of_document = total == 0
-            # Sem titulo, o primeiro print de cada PDF tambem comeca em pagina nova.
-            skip_break = first_of_document or (options.title and index == 0)
-            add_print(document, stream, px_w, px_h,
-                      page_break=options.page_break and not skip_break)
-            total += 1
+        for index, item in enumerate(iter_prints(pdf_path, options)):
+            pages_done += 1
+            if item is not None:
+                first_of_document = prints == 0
+                # Sem titulo, o primeiro print de cada PDF tambem comeca em pagina nova.
+                skip_break = first_of_document or (options.title and index == 0)
+                add_print(document, item,
+                          page_break=options.page_break and not skip_break)
+                prints += 1
+            if on_progress:
+                on_progress(pages_done, pages_total,
+                            f"{pdf_path.name}: pagina {index + 1}")
 
-        print(f"  {pdf_path.name}: {total} print(s) acumulado(s)", file=sys.stderr)
-    return total
+    return prints
+
+
+def convert(pdf_paths: Iterable[Path], output: Path, options: Options,
+            template: Path | None = None,
+            on_progress: ProgressCallback | None = None) -> int:
+    """Converte um lote de PDFs em um unico .docx. Retorna quantos prints gravou."""
+    document = new_document(template)
+    prints = build(pdf_paths, document, options, on_progress)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    document.save(str(output))
+    return prints
 
 
 def collect_pdfs(inputs: Iterable[str]) -> list[Path]:
@@ -292,16 +331,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         groups = [((out_dir or pdf.parent) / f"{pdf.stem}.docx", [pdf]) for pdf in pdfs]
 
+    def report(done: int, total: int, message: str) -> None:
+        print(f"   [{done}/{total}] {message}", file=sys.stderr)
+
     for output, sources in groups:
         if out_dir and args.merge:
             output = out_dir / output.name
         print(f"-> {output}", file=sys.stderr)
-
-        document = new_document(template)
-        total = build(sources, document, options)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        document.save(str(output))
-        print(f"   {total} print(s) gravado(s)\n", file=sys.stderr)
+        prints = convert(sources, output, options, template, report)
+        print(f"   {prints} print(s) gravado(s)\n", file=sys.stderr)
 
     return 0
 

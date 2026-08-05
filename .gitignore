@@ -8,3 +8,8 @@ venv/
 !Exemplo de forma para prints.docx
 *.pdf
 saida/
+
+# empacotamento
+build/
+dist/
+*.spec
